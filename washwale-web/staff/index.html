@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WashWale — My Jobs</title>
+<style>
+  :root { --blue: #1565C0; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #f5f7fa; color: #222; padding: 16px; }
+  h1 { font-size: 18px; color: var(--blue); }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .badge { padding: 3px 8px; border-radius: 10px; color: #fff; font-size: 11px; text-transform: capitalize; }
+  button { border: none; padding: 12px; border-radius: 8px; font-size: 14px; cursor: pointer; width: 100%; margin-top: 8px; }
+  .start { background: var(--blue); color: #fff; }
+  .complete { background: #2E7D32; color: #fff; }
+  #locStatus { font-size: 12px; color: #888; margin-bottom: 10px; }
+  #locStatus.live { color: #2E7D32; }
+  .muted { color: #888; font-size: 13px; }
+  input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<h1>WashWale — My Jobs</h1>
+<div id="locStatus">📍 Location: not sharing</div>
+<div id="setup" class="card" style="display:none">
+  <p class="muted">Missing link info. Enter the API base URL and your tracking link token (from the link your admin shared).</p>
+  <input id="apiIn" placeholder="API base URL" value="http://localhost:3000" />
+  <input id="linkIn" placeholder="Tracking link token" />
+  <button class="start" onclick="applySetup()">Continue</button>
+</div>
+<div id="jobs"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+let API_BASE = params.get('api') || localStorage.getItem('ww_staff_api') || '';
+let LINK = params.get('link') || localStorage.getItem('ww_staff_link') || '';
+
+function applySetup() {
+  API_BASE = document.getElementById('apiIn').value.replace(/\/$/, '');
+  LINK = document.getElementById('linkIn').value.trim();
+  localStorage.setItem('ww_staff_api', API_BASE);
+  localStorage.setItem('ww_staff_link', LINK);
+  document.getElementById('setup').style.display = 'none';
+  init();
+}
+
+if (!API_BASE || !LINK) {
+  document.getElementById('setup').style.display = 'block';
+} else {
+  localStorage.setItem('ww_staff_api', API_BASE);
+  localStorage.setItem('ww_staff_link', LINK);
+}
+
+async function req(path, opts = {}) {
+  const res = await fetch(API_BASE + path, { ...opts, headers: { 'Content-Type': 'application/json' } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+const STATUS_COLORS = { accepted: '#1565C0', in_progress: '#0277BD' };
+let watchId = null;
+
+function startSharing() {
+  if (!navigator.geolocation) return;
+  const statusEl = document.getElementById('locStatus');
+  watchId = navigator.geolocation.watchPosition(async (pos) => {
+    statusEl.textContent = '📍 Location: sharing live';
+    statusEl.classList.add('live');
+    try {
+      await req(`/api/track/${LINK}/location`, {
+        method: 'POST',
+        body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      });
+    } catch (e) { /* ignore transient errors */ }
+  }, () => {
+    statusEl.textContent = '📍 Location: permission denied';
+  }, { enableHighAccuracy: true, maximumAge: 10000 });
+}
+
+function getPositionOnce() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null)
+    );
+  });
+}
+
+async function loadJobs() {
+  try {
+    const data = await req(`/api/track/${LINK}`);
+    document.getElementById('jobs').innerHTML = `<p class="muted">Hi ${data.staffName} — ${data.bookings.length} active job(s)</p>` +
+      data.bookings.map(b => `
+        <div class="card">
+          <div><b>${b.vehicleType} · ${b.serviceType}</b> <span class="badge" style="background:${STATUS_COLORS[b.status]}">${b.status.replace('_',' ')}</span></div>
+          <div class="muted" style="margin-top:6px">${b.address}</div>
+          ${b.status === 'accepted' ? `<button class="start" onclick="startJob(${b.id})">Start Wash</button>` : ''}
+          ${b.status === 'in_progress' ? `<button class="complete" onclick="completeJob(${b.id})">Mark Complete</button>` : ''}
+        </div>`).join('') || '<p class="muted">No active jobs right now.</p>';
+  } catch (e) {
+    document.getElementById('jobs').innerHTML = `<p class="muted">${e.message}</p>`;
+  }
+}
+
+async function startJob(id) {
+  const pos = await getPositionOnce();
+  try {
+    await req(`/api/track/${LINK}/bookings/${id}/start`, { method: 'POST', body: JSON.stringify(pos || { lat: 0, lng: 0 }) });
+    loadJobs();
+  } catch (e) { alert(e.message); }
+}
+
+async function completeJob(id) {
+  const pos = await getPositionOnce();
+  try {
+    await req(`/api/track/${LINK}/bookings/${id}/complete`, { method: 'POST', body: JSON.stringify(pos || { lat: 0, lng: 0 }) });
+    loadJobs();
+  } catch (e) { alert(e.message); }
+}
+
+function init() {
+  startSharing();
+  loadJobs();
+  setInterval(loadJobs, 8000);
+}
+
+if (API_BASE && LINK) init();
+</script>
+</body>
+</html>

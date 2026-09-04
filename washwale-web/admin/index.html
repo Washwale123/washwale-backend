@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WashWale Admin</title>
+<style>
+  :root { --blue: #1565C0; --bg: #f5f7fa; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: var(--bg); color: #222; }
+  header { background: var(--blue); color: #fff; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  header button { background: rgba(255,255,255,0.15); color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+  main { max-width: 960px; margin: 0 auto; padding: 20px; }
+  .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .card h2 { font-size: 15px; margin-top: 0; color: #444; }
+  input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 10px; font-size: 14px; }
+  button.primary { background: var(--blue); color: #fff; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button.small { background: #eee; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-right: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; }
+  .badge { padding: 3px 8px; border-radius: 10px; color: #fff; font-size: 11px; text-transform: capitalize; }
+  #loginScreen { max-width: 360px; margin: 80px auto; }
+  #app { display: none; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .muted { color: #888; font-size: 12px; }
+  .track-link { font-family: monospace; font-size: 11px; background: #f0f0f0; padding: 4px 6px; border-radius: 4px; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<div id="loginScreen" class="card">
+  <h2>WashWale Admin Login</h2>
+  <input id="apiBase" placeholder="API base URL" value="http://localhost:3000" />
+  <input id="username" placeholder="Username" />
+  <input id="password" type="password" placeholder="Password" />
+  <button class="primary" onclick="login()" style="width:100%">Log In</button>
+  <p class="muted" id="loginMsg"></p>
+  <hr />
+  <details>
+    <summary class="muted" style="cursor:pointer">First time? Create the admin account</summary>
+    <input id="bsUsername" placeholder="New username" style="margin-top:10px" />
+    <input id="bsPassword" type="password" placeholder="New password" />
+    <button class="small" onclick="bootstrap()">Create Admin</button>
+  </details>
+</div>
+
+<div id="app">
+  <header>
+    <h1>WashWale Admin</h1>
+    <button onclick="logout()">Log out</button>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Add Staff</h2>
+      <div class="row">
+        <input id="staffName" placeholder="Staff name" />
+        <input id="staffPhone" placeholder="Phone" />
+      </div>
+      <button class="primary" onclick="addStaff()">Add Staff</button>
+      <div id="staffList" style="margin-top:16px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Bookings</h2>
+      <button class="small" onclick="loadBookings()">Refresh</button>
+      <div id="bookingsList" style="margin-top:12px"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+let API_BASE = '';
+let TOKEN = localStorage.getItem('ww_admin_token') || '';
+
+function el(id) { return document.getElementById(id); }
+
+async function req(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
+  const res = await fetch(API_BASE + path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function bootstrap() {
+  API_BASE = el('apiBase').value.replace(/\/$/, '');
+  try {
+    await req('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify({ username: el('bsUsername').value, password: el('bsPassword').value }) });
+    el('loginMsg').textContent = 'Admin created — now log in above.';
+  } catch (e) {
+    el('loginMsg').textContent = e.message;
+  }
+}
+
+async function login() {
+  API_BASE = el('apiBase').value.replace(/\/$/, '');
+  try {
+    const data = await req('/api/admin/login', { method: 'POST', body: JSON.stringify({ username: el('username').value, password: el('password').value }) });
+    TOKEN = data.token;
+    localStorage.setItem('ww_admin_token', TOKEN);
+    localStorage.setItem('ww_api_base', API_BASE);
+    showApp();
+  } catch (e) {
+    el('loginMsg').textContent = e.message;
+  }
+}
+
+function logout() {
+  TOKEN = '';
+  localStorage.removeItem('ww_admin_token');
+  el('app').style.display = 'none';
+  el('loginScreen').style.display = 'block';
+}
+
+function showApp() {
+  el('loginScreen').style.display = 'none';
+  el('app').style.display = 'block';
+  loadStaff();
+  loadBookings();
+}
+
+async function addStaff() {
+  const name = el('staffName').value.trim();
+  const phone = el('staffPhone').value.trim();
+  if (!name || !phone) return alert('Name and phone required');
+  try {
+    await req('/api/admin/staff', { method: 'POST', body: JSON.stringify({ name, phone }) });
+    el('staffName').value = '';
+    el('staffPhone').value = '';
+    loadStaff();
+  } catch (e) { alert(e.message); }
+}
+
+let STAFF = [];
+async function loadStaff() {
+  STAFF = await req('/api/admin/staff');
+  const html = STAFF.map(s => `
+    <table style="margin-bottom:8px">
+      <tr><td><b>${s.name}</b> · ${s.phone}</td>
+      <td class="track-link">${location.origin}${location.pathname.replace('admin/index.html','staff/index.html')}?api=${encodeURIComponent(API_BASE)}&link=${s.trackLinkToken}</td></tr>
+    </table>`).join('');
+  el('staffList').innerHTML = '<h3 style="font-size:13px;color:#666">Staff & their tracking links</h3>' + (html || '<p class="muted">No staff yet.</p>');
+}
+
+const STATUS_COLORS = { pending: '#F9A825', accepted: '#1565C0', in_progress: '#0277BD', completed: '#2E7D32', cancelled: '#C62828' };
+
+async function loadBookings() {
+  const bookings = await req('/api/admin/bookings');
+  const rows = bookings.reverse().map(b => `
+    <tr>
+      <td>#${b.id}</td>
+      <td>${b.vehicleType} · ${b.serviceType}</td>
+      <td>${b.address}</td>
+      <td><span class="badge" style="background:${STATUS_COLORS[b.status]||'#888'}">${b.status.replace('_',' ')}</span></td>
+      <td>${b.staffId ? (STAFF.find(s=>s.id===b.staffId)?.name || b.staffId) : '—'}</td>
+      <td>${b.price != null ? '₹'+b.price : '—'}</td>
+      <td>
+        ${b.status === 'pending' ? `<button class="small" onclick="assign(${b.id})">Assign</button>` : ''}
+      </td>
+    </tr>`).join('');
+  el('bookingsList').innerHTML = `
+    <table>
+      <tr><th>ID</th><th>Vehicle/Service</th><th>Address</th><th>Status</th><th>Staff</th><th>Price</th><th></th></tr>
+      ${rows || '<tr><td colspan="7" class="muted">No bookings yet.</td></tr>'}
+    </table>`;
+}
+
+async function assign(bookingId) {
+  if (STAFF.length === 0) return alert('Add a staff member first.');
+  const names = STAFF.map((s,i) => `${i+1}. ${s.name}`).join('\n');
+  const pick = prompt('Assign which staff member?\n' + names);
+  const idx = parseInt(pick, 10) - 1;
+  if (isNaN(idx) || !STAFF[idx]) return;
+  const price = prompt('Price (₹)?', '299');
+  try {
+    await req(`/api/admin/bookings/${bookingId}`, { method: 'PATCH', body: JSON.stringify({ status: 'accepted', staffId: STAFF[idx].id, price: Number(price) || 0 }) });
+    loadBookings();
+  } catch (e) { alert(e.message); }
+}
+
+// restore session
+window.onload = () => {
+  const savedBase = localStorage.getItem('ww_api_base');
+  if (savedBase) el('apiBase').value = savedBase;
+  if (TOKEN) {
+    API_BASE = savedBase || el('apiBase').value;
+    showApp();
+  }
+};
+</script>
+</body>
+</html>
