@@ -2,6 +2,12 @@
 // (same shape the old JSON file used), so the rest of the codebase barely
 // changes — you just `await` db.load() / db.save() now instead of calling
 // them synchronously.
+// Prefer IPv4 when resolving hostnames. Some hosts (e.g. Render) have
+// unreliable IPv6 routing to MongoDB Atlas, which surfaces as a confusing
+// TLS handshake error ("SSL alert number 80") rather than a clear network
+// error. Forcing IPv4 first avoids that.
+require('dns').setDefaultResultOrder('ipv4first');
+
 const { MongoClient } = require('mongodb');
 
 const MONGODB_URI = process.env.MONGODB_URI;
