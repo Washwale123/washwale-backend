@@ -161,7 +161,7 @@ router.get('/api/bookings/:id/location', async (req, res) => {
   const booking = data.bookings.find((b) => b.id === Number(req._params.id) && b.userId === auth.sub);
   if (!booking) return sendJson(res, 404, { error: 'Booking not found' });
   if (!booking.staffId) return sendJson(res, 200, { location: null, message: 'Not yet assigned' });
-  const staff = data.staff.find((s) => s.id === booking.staffId);
+  const staff = data.staff.find((s) => s.id === Number(booking.staffId));
   sendJson(res, 200, { location: staff?.currentLocation || null, staffName: staff?.name || null });
 });
 
@@ -235,7 +235,7 @@ router.patch('/api/admin/bookings/:id', async (req, res) => {
   if (!booking) return sendJson(res, 404, { error: 'Booking not found' });
   const { status, staffId, price } = req._body;
   if (status) booking.status = status;
-  if (staffId !== undefined) booking.staffId = staffId;
+  if (staffId !== undefined) booking.staffId = staffId === null ? null : Number(staffId);
   if (price !== undefined) booking.price = price;
   await db.save(data);
   sendJson(res, 200, booking);
@@ -270,7 +270,7 @@ router.get('/api/track/:linkToken', async (req, res) => {
   const staff = data.staff.find((s) => s.trackLinkToken === req._params.linkToken);
   if (!staff) return sendJson(res, 404, { error: 'Invalid tracking link' });
   const today = new Date().toISOString().slice(0, 10);
-  const myBookings = data.bookings.filter((b) => b.staffId === staff.id && ['accepted', 'in_progress'].includes(b.status));
+  const myBookings = data.bookings.filter((b) => Number(b.staffId) === staff.id && ['accepted', 'in_progress'].includes(b.status));
   sendJson(res, 200, { staffName: staff.name, bookings: myBookings });
 });
 
@@ -290,7 +290,7 @@ router.post('/api/track/:linkToken/bookings/:id/start', async (req, res) => {
   const data = await db.load();
   const staff = data.staff.find((s) => s.trackLinkToken === req._params.linkToken);
   if (!staff) return sendJson(res, 404, { error: 'Invalid tracking link' });
-  const booking = data.bookings.find((b) => b.id === Number(req._params.id) && b.staffId === staff.id);
+  const booking = data.bookings.find((b) => b.id === Number(req._params.id) && Number(b.staffId) === staff.id);
   if (!booking) return sendJson(res, 404, { error: 'Booking not found for this staff member' });
   booking.status = 'in_progress';
   booking.startLocation = { lat, lng, timestamp: new Date().toISOString() };
@@ -303,7 +303,7 @@ router.post('/api/track/:linkToken/bookings/:id/complete', async (req, res) => {
   const data = await db.load();
   const staff = data.staff.find((s) => s.trackLinkToken === req._params.linkToken);
   if (!staff) return sendJson(res, 404, { error: 'Invalid tracking link' });
-  const booking = data.bookings.find((b) => b.id === Number(req._params.id) && b.staffId === staff.id);
+  const booking = data.bookings.find((b) => b.id === Number(req._params.id) && Number(b.staffId) === staff.id);
   if (!booking) return sendJson(res, 404, { error: 'Booking not found for this staff member' });
   booking.status = 'completed';
   booking.endLocation = { lat, lng, timestamp: new Date().toISOString() };
